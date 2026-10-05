@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tömeges QR Kód Címkenyomtató (A4 Grid)</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- QRCodeJS Library -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap');
+
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+
+    .font-mono-code {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Print page specifications for A4 */
+    @page {
+      size: A4 portrait;
+      margin: 8mm;
+    }
+
+    @media print {
+      body {
+        background-color: #ffffff !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      .no-print {
+        display: none !important;
+      }
+
+      .print-area-wrapper {
+        padding: 0 !important;
+        margin: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        width: 100% !important;
+        max-width: 100% !important;
+      }
+
+      /* Prevent labels from being split across page boundaries */
+      .qr-cut-label {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+      }
+    }
+
+    /* Screen preview sheet representation of an A4 page */
+    .a4-screen-preview {
+      width: 100%;
+      max-width: 210mm;
+      min-height: 297mm;
+      margin-left: auto;
+      margin-right: auto;
+      background: white;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Dashed cut lines */
+    .cut-line-dashed {
+      border: 1px dashed #94a3b8;
+    }
+
+    .cut-line-solid {
+      border: 1px solid #cbd5e1;
+    }
+
+    .cut-line-none {
+      border: 1px solid transparent;
+    }
+
+    /* Sharp rendering for QR code images / canvases */
+    .qr-container img, .qr-container canvas {
+      image-rendering: -webkit-optimize-contrast;
+      image-rendering: crisp-edges;
+      image-rendering: pixelated;
+      margin: 0 auto;
+      display: block;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen flex flex-col">
+
+  <!-- Header with actions -->
+  <header class="no-print bg-slate-900 text-white shadow-md sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex flex-col sm:flex-row justify-between items-center gap-3">
+      <div class="flex items-center space-x-3">
+        <div class="bg-indigo-600 p-2.5 rounded-xl shadow-inner text-white">
+          <i class="fa-solid fa-qrcode text-lg"></i>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold tracking-tight leading-tight">Tömeges QR Címkegenerátor</h1>
+          <p class="text-xs text-slate-400">Papírtakarékos A4 rács &middot; Vágási segédvonalak &middot; Dobozcímkék</p>
+        </div>
+      </div>
+      
+      <!-- Action buttons -->
+      <div class="flex items-center space-x-2.5">
+        <button id="btnGenerate" type="button" class="inline-flex items-center px-4 py-2 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-semibold text-xs sm:text-sm rounded-xl shadow transition gap-2">
+          <i class="fa-solid fa-arrows-rotate"></i>
+          <span>Frissítés</span>
+        </button>
+        <button id="btnPrint" type="button" class="inline-flex items-center px-5 py-2 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-lg transition gap-2">
+          <i class="fa-solid fa-print"></i>
+          <span>Nyomtatás / PDF mentés</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 py-6">
+    <!-- Controls section -->
+    <section class="no-print bg-white rounded-2xl shadow-sm border border-slate-200/80 p-5 mb-6">
+      <div class="border-b border-slate-100 pb-3 mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+          <i class="fa-solid fa-sliders text-indigo-500"></i>
+          Címkék és Rács Beállításai
+        </h2>
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-semibold px-2.5 py-1 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-full" id="totalLabelsBadge">
+            0 db címke
+          </span>
+          <span class="text-xs font-semibold px-2.5 py-1 bg-slate-100 text-slate-600 rounded-full" id="estPagesBadge">
+            ~0 A4 oldal
+          </span>
+        </div>
+      </div>
+
+      <!-- Controls grid -->
+      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-3.5">
+        <!-- Prefix input -->
+        <div class="col-span-2 sm:col-span-1">
+          <label for="prefix" class="block text-xs font-semibold text-slate-600 mb-1">Előtag</label>
+          <input type="text" id="prefix" value="box" class="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none" placeholder="pl. box">
+        </div>
+
+        <!-- Start Number input -->
+        <div>
+          <label for="startNum" class="block text-xs font-semibold text-slate-600 mb-1">Kezdő szám</label>
+          <input type="number" id="startNum" value="1" min="0" class="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+        </div>
+
+        <!-- End Number input -->
+        <div>
+          <label for="endNum" class="block text-xs font-semibold text-slate-600 mb-1">Záró szám</label>
+          <input type="number" id="endNum" value="50" min="0" class="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+        </div>
+
+        <!-- Padding input -->
+        <div>
+          <label for="padLength" class="block text-xs font-semibold text-slate-600 mb-1">Hossz (001)</label>
+          <input type="number" id="padLength" value="3" min="1" max="8" class="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+        </div>
+
+        <!-- Grid columns count -->
+        <div>
+          <label for="columnsCount" class="block text-xs font-semibold text-slate-600 mb-1">Oszlopok / lap</label>
+          <select id="columnsCount" class="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm font-medium bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+            <option value="2">2 oszlop (nagy címke)</option>
+            <option value="3">3 oszlop (közepes)</option>
+            <option value="4" selected>4 oszlop (kompakt)</option>
+            <option value="5">5 oszlop (mini)</option>
+          </select>
+        </div>
+
+        <!-- QR pixel size -->
+        <div>
+          <label for="qrDisplaySize" class="block text-xs font-semibold text-slate-600 mb-1">QR méret (px)</label>
+          <select id="qrDisplaySize" class="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm font-medium bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+            <option value="90">90 px (kicsi)</option>
+            <option value="115" selected>115 px (ideális)</option>
+            <option value="140">140 px (nagy)</option>
+          </select>
+        </div>
+
+        <!-- Cut border style -->
+        <div>
+          <label for="borderStyle" class="block text-xs font-semibold text-slate-600 mb-1">Vágási segédvonal</label>
+          <select id="borderStyle" class="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm font-medium bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+            <option value="cut-line-dashed" selected>Szaggatott vonal</option>
+            <option value="cut-line-solid">Halvány folytonos</option>
+            <option value="cut-line-none">Nincs vonal</option>
+          </select>
+        </div>
+
+        <!-- Error Correction Level -->
+        <div>
+          <label for="errorCorrection" class="block text-xs font-semibold text-slate-600 mb-1">QR hibajavítás</label>
+          <select id="errorCorrection" class="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm font-medium bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+            <option value="L">Alacsony (L - 7%)</option>
+            <option value="M" selected>Közepes (M - 15%)</option>
+            <option value="Q">Jobb (Q - 25%)</option>
+            <option value="H">Magas (H - 30%)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Additional options row -->
+      <div class="mt-4 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-4">
+        <div class="flex items-center gap-6">
+          <label class="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" id="showText" checked class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500">
+            <span class="text-xs font-medium text-slate-700">Szöveges kód megjelenítése (alul)</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" id="showScissors" checked class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500">
+            <span class="text-xs font-medium text-slate-700">Kis olló ikon a sarokban</span>
+          </label>
+        </div>
+
+        <div class="text-xs text-slate-400 italic">
+          <i class="fa-solid fa-lightbulb text-amber-400 mr-1"></i>
+          Nyomtatáskor az előnézetben a margókat állítsd "Egyéni: 0-8mm"-re vagy "Minimálisra".
+        </div>
+      </div>
+
+      <!-- Warning/Notification -->
+      <div id="noticeBox" class="mt-3 hidden p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-center gap-2">
+        <i class="fa-solid fa-triangle-exclamation text-amber-500"></i>
+        <span id="noticeMessage"></span>
+      </div>
+    </section>
+
+    <!-- Screen View Header -->
+    <div class="no-print mb-3 flex items-center justify-between text-slate-500 text-xs">
+      <span class="font-medium uppercase tracking-wider flex items-center gap-1.5 text-slate-600">
+        <i class="fa-solid fa-sheet-plastic text-indigo-600"></i>
+        A4 Nyomtatási elrendezés előnézete
+      </span>
+      <span>Mentéshez kattints a <strong>Nyomtatás</strong> gombra és válaszd a <strong>"Mentés PDF-ként"</strong> opciót.</span>
+    </div>
+
+    <!-- Printable Grid Card Canvas -->
+    <div id="printArea" class="print-area-wrapper a4-screen-preview p-5 sm:p-7 rounded-xl transition duration-150">
+      <div id="qrGridContainer" class="grid gap-2">
+        <!-- QR cards dynamically populated here -->
+      </div>
+    </div>
+  </main>
+
+  <script>
+    // Cached DOM Elements
+    const prefixInput = document.getElementById('prefix');
+    const startNumInput = document.getElementById('startNum');
+    const endNumInput = document.getElementById('endNum');
+    const padLengthInput = document.getElementById('padLength');
+    const columnsCountSelect = document.getElementById('columnsCount');
+    const qrDisplaySizeSelect = document.getElementById('qrDisplaySize');
+    const borderStyleSelect = document.getElementById('borderStyle');
+    const errorCorrectionSelect = document.getElementById('errorCorrection');
+    const showTextCheckbox = document.getElementById('showText');
+    const showScissorsCheckbox = document.getElementById('showScissors');
+
+    const btnGenerate = document.getElementById('btnGenerate');
+    const btnPrint = document.getElementById('btnPrint');
+    const qrGridContainer = document.getElementById('qrGridContainer');
+    const totalLabelsBadge = document.getElementById('totalLabelsBadge');
+    const estPagesBadge = document.getElementById('estPagesBadge');
+    const noticeBox = document.getElementById('noticeBox');
+    const noticeMessage = document.getElementById('noticeMessage');
+
+    // QR Error Correction Mapping
+    const correctionLevels = {
+      'L': QRCode.CorrectLevel.L,
+      'M': QRCode.CorrectLevel.M,
+      'Q': QRCode.CorrectLevel.Q,
+      'H': QRCode.CorrectLevel.H
+    };
+
+    function showNotice(msg) {
+      noticeMessage.textContent = msg;
+      noticeBox.classList.remove('hidden');
+    }
+
+    function hideNotice() {
+      noticeBox.classList.add('hidden');
+    }
+
+    // Dynamic grid classes based on column choice
+    function applyGridColumns(columns) {
+      qrGridContainer.classList.remove('grid-cols-2', 'grid-cols-3', 'grid-cols-4', 'grid-cols-5');
+      if (columns === 2) qrGridContainer.classList.add('grid-cols-2');
+      else if (columns === 3) qrGridContainer.classList.add('grid-cols-3');
+      else if (columns === 4) qrGridContainer.classList.add('grid-cols-4');
+      else if (columns === 5) qrGridContainer.classList.add('grid-cols-5');
+      else qrGridContainer.classList.add('grid-cols-4');
+    }
+
+    function generateQRCodes() {
+      hideNotice();
+
+      const prefix = prefixInput.value.trim();
+      const start = parseInt(startNumInput.value, 10);
+      const end = parseInt(endNumInput.value, 10);
+      const padLen = Math.max(1, parseInt(padLengthInput.value, 10) || 1);
+      const cols = parseInt(columnsCountSelect.value, 10) || 4;
+      const qrPixelSize = parseInt(qrDisplaySizeSelect.value, 10) || 115;
+      const borderClass = borderStyleSelect.value;
+      const errorLevelKey = errorCorrectionSelect.value || 'M';
+      const showLabelText = showTextCheckbox.checked;
+      const showScissors = showScissorsCheckbox.checked;
+
+      // Validation
+      if (isNaN(start) || isNaN(end)) {
+        showNotice('Kérjük, adjon meg érvényes kezdő és záró sorszámot!');
+        return;
+      }
+
+      if (start > end) {
+        showNotice('A kezdő sorszám nem lehet nagyobb, mint a záró sorszám!');
+        return;
+      }
+
+      const totalItems = (end - start) + 1;
+
+      if (totalItems > 600) {
+        showNotice(`Figyelem: ${totalItems} db címke generálása folyamatban van. Ez néhány másodpercet igénybe vehet.`);
+      }
+
+      // Update grid template
+      applyGridColumns(cols);
+
+      // Estimate pages count (average: 4 cols = ~24-28 per page; 3 cols = ~18-21 per page)
+      const estimatedPerPage = cols * (cols >= 4 ? 7 : 6);
+      const estPages = Math.ceil(totalItems / estimatedPerPage);
+      
+      totalLabelsBadge.textContent = `${totalItems} db címke`;
+      estPagesBadge.textContent = `~${estPages} A4 lap`;
+
+      // Clear previous elements
+      qrGridContainer.innerHTML = '';
+
+      // High-res QR render scale for super crisp printing
+      const renderPixelResolution = Math.max(qrPixelSize * 2, 200);
+
+      // Render each cuttable label card
+      for (let i = start; i <= end; i++) {
+        const paddedNum = String(i).padStart(padLen, '0');
+        const codeValue = `${prefix}${paddedNum}`;
+
+        // Label card element
+        const card = document.createElement('div');
+        card.className = `qr-cut-label relative bg-white flex flex-col items-center justify-between p-2 rounded-lg ${borderClass} transition`;
+
+        // Small scissors icon indicator in corner for cutting
+        if (showScissors) {
+          const cutGuide = document.createElement('div');
+          cutGuide.className = 'absolute top-1 left-1.5 text-slate-300 text-[10px] pointer-events-none select-none';
+          cutGuide.innerHTML = '<i class="fa-solid fa-scissors"></i>';
+          card.appendChild(cutGuide);
+        }
+
+        // QR Code holder
+        const qrBox = document.createElement('div');
+        qrBox.className = 'qr-container flex items-center justify-center my-auto py-1';
+        qrBox.style.width = `${qrPixelSize}px`;
+        qrBox.style.height = `${qrPixelSize}px`;
+
+        // Create QR
+        new QRCode(qrBox, {
+          text: codeValue,
+          width: renderPixelResolution,
+          height: renderPixelResolution,
+          colorDark: '#000000',
+          colorLight: '#ffffff',
+          correctLevel: correctionLevels[errorLevelKey] || QRCode.CorrectLevel.M
+        });
+
+        // Ensure canvas/img scales cleanly to display size
+        const intervalId = setInterval(() => {
+          const img = qrBox.querySelector('img') || qrBox.querySelector('canvas');
+          if (img) {
+            img.style.width = `${qrPixelSize}px`;
+            img.style.height = `${qrPixelSize}px`;
+            clearInterval(intervalId);
+          }
+        }, 30);
+
+        card.appendChild(qrBox);
+
+        // Readable code text underneath
+        if (showLabelText) {
+          const textEl = document.createElement('span');
+          textEl.className = 'font-mono-code font-bold text-slate-900 tracking-wider text-xs sm:text-sm mt-1 text-center select-all break-all';
+          textEl.textContent = codeValue;
+          card.appendChild(textEl);
+        }
+
+        qrGridContainer.appendChild(card);
+      }
+    }
+
+    // Event listeners
+    btnGenerate.addEventListener('click', generateQRCodes);
+
+    btnPrint.addEventListener('click', () => {
+      window.print();
+    });
+
+    // Auto-update on control changes
+    [columnsCountSelect, qrDisplaySizeSelect, borderStyleSelect, showTextCheckbox, showScissorsCheckbox].forEach(el => {
+      el.addEventListener('change', generateQRCodes);
+    });
+
+    // Initial render
+    window.addEventListener('DOMContentLoaded', () => {
+      generateQRCodes();
+    });
+  </script>
+</body>
+</html>
